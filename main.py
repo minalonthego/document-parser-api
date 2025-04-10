@@ -3,35 +3,35 @@
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
-import os, io, fitz, openpyxl, pandas as pd, docx2txt, pytesseract
 from PIL import Image
-from tempfile import NamedTemporaryFile
+import pytesseract, io, fitz, pandas as pd, docx2txt, os
+import openpyxl
 
 app = FastAPI()
+
 
 @app.post("/parse", response_class=PlainTextResponse)
 async def parse_file(request: Request):
     content = await request.body()
-    
-    # Save to temp file to detect type
-    with NamedTemporaryFile(delete=False) as tmp:
-        tmp.write(content)
-        tmp.flush()
-        tmp_path = tmp.name
 
     try:
-        if tmp_path.endswith('.pdf') or b'%PDF' in content:
+        # Try PDF
+        if b'%PDF' in content[:1024]:
             return parse_pdf(content)
+        # Try DOCX
         elif content.startswith(b'PK') and b'[Content_Types].xml' in content:
             return parse_docx(content)
+        # Try XLSX
         elif content.startswith(b'PK') and b'xl/' in content:
             return parse_excel(content)
-        elif b',' in content[:500]:  # naive CSV check
+        # Try CSV
+        elif b',' in content[:100]:
             return parse_csv(content)
-        elif content[0:2] == b'\xFF\xD8' or content[1:4] == b'PNG':
+        # Try PNG or JPEG
+        elif content[1:4] in [b'PNG', b'JFI', b'JFIF']:
             return parse_image(content)
         else:
-            raise HTTPException(status_code=400, detail="Unsupported or unrecognized file format")
+            return "Unknown or unsupported file format"
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -45,21 +45,18 @@ def parse_pdf(content):
     return text
 
 def parse_docx(content):
-    with io.BytesIO(content) as f:
-        with open("temp.docx", "wb") as out:
-            out.write(f.read())
-        text = docx2txt.process("temp.docx")
-        os.remove("temp.docx")
+    with open("temp.docx", "wb") as f:
+        f.write(content)
+    text = docx2txt.process("temp.docx")
+    os.remove("temp.docx")
     return text
 
 def parse_excel(content):
-    with io.BytesIO(content) as excel_io:
-        df = pd.read_excel(excel_io)
-        return df.to_csv(index=False)
+    df = pd.read_excel(io.BytesIO(content))
+    return df.to_csv(index=False)
 
 def parse_csv(content):
-    decoded = content.decode("utf-8", errors="ignore")
-    return decoded
+    return content.decode("utf-8", errors="ignore")
 
 def parse_image(content):
     image = Image.open(io.BytesIO(content))
