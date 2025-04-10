@@ -9,40 +9,48 @@ import openpyxl
 
 app = FastAPI()
 
-
 @app.post("/parse", response_class=PlainTextResponse)
 async def parse_file(request: Request):
+    content_type = request.headers.get("Content-Type")
     content = await request.body()
 
     try:
-        # Try PDF
-        if b'%PDF' in content[:1024]:
+        # Fallback if no header sent
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        if content_type == "application/pdf":
             return parse_pdf(content)
-        # Try DOCX
-        elif content.startswith(b'PK') and b'[Content_Types].xml' in content:
-            return parse_docx(content)
-        # Try XLSX
-        elif content.startswith(b'PK') and b'xl/' in content:
-            return parse_excel(content)
-        # Try CSV
-        elif b',' in content[:100]:
-            return parse_csv(content)
-        # Try PNG or JPEG
-        elif content[1:4] in [b'PNG', b'JFI', b'JFIF']:
+        elif content_type in ["image/png", "image/jpeg", "image/jpg"]:
             return parse_image(content)
+        elif content_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+            return parse_docx(content)
+        elif content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            return parse_excel(content)
+        elif content_type == "text/csv":
+            return parse_csv(content)
         else:
-            return "Unknown or unsupported file format"
+            # Heuristic fallback (for Apex)
+            if b'%PDF' in content[:10]:
+                return parse_pdf(content)
+            elif content.startswith(b'PK') and b'[Content_Types].xml' in content:
+                return parse_docx(content)
+            elif content.startswith(b'PK') and b'xl/' in content:
+                return parse_excel(content)
+            elif b',' in content[:100]:
+                return parse_csv(content)
+            elif content[1:4] in [b'PNG', b'JFI', b'JFIF']:
+                return parse_image(content)
+            else:
+                return "Unsupported or unknown file format."
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 def parse_pdf(content):
-    text = ""
     with fitz.open(stream=content, filetype="pdf") as doc:
-        for page in doc:
-            text += page.get_text()
-    return text
+        return "\n".join([page.get_text() for page in doc])
 
 def parse_docx(content):
     with open("temp.docx", "wb") as f:
