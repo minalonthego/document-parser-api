@@ -18,7 +18,8 @@ app = FastAPI()
 
 @app.post("/parse", response_class=PlainTextResponse)
 async def parse_file(file: UploadFile = File(...)):
-    filename = file.filename.lower()
+filename = request.headers.get("X-Filename", "unknown").lower()
+
     content = await file.read()
 
     try:
