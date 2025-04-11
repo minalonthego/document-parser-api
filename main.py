@@ -1,14 +1,12 @@
 # ✅ Python FastAPI Boilerplate for Document Parsing
 # Supports PDF, Word, Excel, CSV, and Images (with Tesseract)
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import PlainTextResponse
-from typing import Optional
 import os
 import pytesseract
 from PIL import Image
 import io
-import csv
 import pandas as pd
 import docx2txt
 import fitz  # PyMuPDF
@@ -17,10 +15,9 @@ import openpyxl
 app = FastAPI()
 
 @app.post("/parse", response_class=PlainTextResponse)
-async def parse_file(file: UploadFile = File(...)):
-filename = request.headers.get("X-Filename", "unknown").lower()
-
-    content = await file.read()
+async def parse_file(request: Request):
+    filename = request.headers.get("X-Filename", "unknown").lower()
+    content = await request.body()
 
     try:
         if filename.endswith(".pdf"):
@@ -44,16 +41,14 @@ def parse_pdf(content):
         return "\n".join([page.get_text() for page in doc])
 
 def parse_excel(content):
-    with io.BytesIO(content) as excel_io:
-        df = pd.read_excel(excel_io)
-        return df.to_csv(index=False)
+    df = pd.read_excel(io.BytesIO(content))
+    return df.to_csv(index=False)
 
 def parse_docx(content):
-    with io.BytesIO(content) as f:
-        with open("temp.docx", "wb") as out:
-            out.write(f.read())
-        text = docx2txt.process("temp.docx")
-        os.remove("temp.docx")
+    with open("temp.docx", "wb") as out:
+        out.write(content)
+    text = docx2txt.process("temp.docx")
+    os.remove("temp.docx")
     return text
 
 def parse_csv(content):
